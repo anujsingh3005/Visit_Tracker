@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
+<<<<<<< HEAD
         android:label="visit_sales"
+=======
+        android:label="visit_tracker_app"
+>>>>>>> af9a197cfbec245396a3c4311b67626501b93e52
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

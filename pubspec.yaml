@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 name: visit_sales
+=======
+name: visit_tracker_app
+>>>>>>> af9a197cfbec245396a3c4311b67626501b93e52
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -31,9 +35,24 @@ dependencies:
   flutter:
     sdk: flutter
 
+<<<<<<< HEAD
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+=======
+  # State Management
+  provider: ^6.1.2
+
+  # Utilities & UI
+  intl: ^0.20.2
+  timeago: ^3.6.1
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+  fl_chart: ^1.1.0 # <-- ADD THIS LINE
+  vector_math: ^2.2.0
+>>>>>>> af9a197cfbec245396a3c4311b67626501b93e52
 
 dev_dependencies:
   flutter_test:

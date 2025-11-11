@@ -1,6 +1,11 @@
 {
+<<<<<<< HEAD
     "name": "visit_sales",
     "short_name": "visit_sales",
+=======
+    "name": "visit_tracker_app",
+    "short_name": "visit_tracker_app",
+>>>>>>> af9a197cfbec245396a3c4311b67626501b93e52
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

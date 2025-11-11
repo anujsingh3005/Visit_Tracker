@@ -27,7 +27,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
+<<<<<<< HEAD
   if (!window.Create(L"visit_sales", origin, size)) {
+=======
+  if (!window.Create(L"visit_tracker_app", origin, size)) {
+>>>>>>> af9a197cfbec245396a3c4311b67626501b93e52
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

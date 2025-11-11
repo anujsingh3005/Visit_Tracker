@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # visit_sales
+=======
+# visit_tracker_app
+>>>>>>> af9a197cfbec245396a3c4311b67626501b93e52
 
 A new Flutter project.
 
