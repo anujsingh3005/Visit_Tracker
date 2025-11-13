@@ -19,20 +19,34 @@ model User {
   designation     String
   profileImageUrl String?
   createdAt       DateTime  @default(now())
-  visits          Visit[]   @relation("UserVisits")
+  visits          Visit[]
 }
 
 model Visit {
   id                Int       @id @default(autoincrement())
-  salesperson       User      @relation("UserVisits", fields: [salespersonId], references: [id])
+  salesperson       User      @relation(fields: [salespersonId], references: [id])
   salespersonId     Int
+
   clientName        String
   contactPersonName String
-  clientPhone       String
-  clientAddress     String
-  clientDetails     String
-  startTime         DateTime
+  clientPhone       String?
+  clientAddress     String?
+  clientDetails     String?
+
+  status            String    @default("planned") // planned → in-progress → done
+
+  startTime         DateTime?
   endTime           DateTime?
-  status            String
+
+  startLat          Float?
+  startLong         Float?
+  endLat            Float?
+  endLong           Float?
+
+  entryImageUrl     String?
+  exitImageUrl      String?
+
+  suspiciousFlags   String[]  @default([])
+
   createdAt         DateTime  @default(now())
 }
