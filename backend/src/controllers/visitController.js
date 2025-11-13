@@ -1,229 +1,210 @@
-const prisma = require('../config/db');
+const prisma = require("../config/db");
+const cloudinary = require("../config/cloudinary");
+const { extractExifData, softValidate } = require("../utils/exifUtils");
+const streamifier = require("streamifier");
 
-/**
- * Helper to map a user's uid to internal integer id.
- * If salespersonUid is undefined, and reqUser exists, use reqUser.id.
- */
-async function resolveSalespersonId(salespersonUid, reqUser) {
-  if (salespersonUid) {
-    const u = await prisma.user.findUnique({ where: { uid: salespersonUid } });
-    if (!u) throw { status: 400, message: 'Invalid salespersonUid' };
-    return u.id;
-  }
-  if (reqUser) return reqUser.id;
-  throw { status: 400, message: 'salesperson not specified' };
-}
-
-exports.createVisit = async (req, res, next) => {
+// ---------- CREATE (PLAN VISIT) ----------
+exports.planVisit = async (req, res, next) => {
   try {
-    // Accept salespersonUid (string) or use authenticated user
     const {
-      salespersonUid,
       clientName,
       contactPersonName,
       clientPhone,
       clientAddress,
       clientDetails,
-      startTime,
-      endTime,
-      status = 'pending'
     } = req.body;
-
-    const salespersonId = await resolveSalespersonId(salespersonUid, req.user);
-    if (!clientName || !contactPersonName) return res.status(400).json({ error: 'clientName and contactPersonName required' });
 
     const visit = await prisma.visit.create({
       data: {
-        salespersonId,
+        salespersonId: req.user.id,
         clientName,
         contactPersonName,
         clientPhone,
         clientAddress,
         clientDetails,
-        startTime: new Date(startTime),
-        endTime: endTime ? new Date(endTime) : null,
-        status
-      }
+        status: "planned",
+      },
     });
 
-    // Attach uid on response for frontend convenience
-    const sp = await prisma.user.findUnique({ where: { id: salespersonId } });
-
-    res.status(201).json({
-      ...visit,
-      salespersonUid: sp.uid
-    });
+    res.status(201).json(visit);
   } catch (err) {
     next(err);
   }
 };
 
+// ---------- READ ALL ----------
 exports.listVisits = async (req, res, next) => {
   try {
-    // If manager: allow query param ?salespersonUid=... to filter, else return all.
-    // If salesperson: return only their visits.
-    const requester = req.user;
-    const { salespersonUid } = req.query;
-
-    let where = {};
-    if (requester.role === 'salesperson') {
-      where = { salespersonId: requester.id };
-    } else {
-      if (salespersonUid) {
-        const u = await prisma.user.findUnique({ where: { uid: salespersonUid } });
-        if (!u) return res.status(400).json({ error: 'invalid salespersonUid' });
-        where = { salespersonId: u.id };
-      } else {
-        // no filter => all visits
-        where = {};
-      }
-    }
+    const { status } = req.query; // optional filter
+    const where = { salespersonId: req.user.id };
+    if (status) where.status = status;
 
     const visits = await prisma.visit.findMany({
       where,
-      orderBy: { startTime: 'desc' },
-      include: { salesperson: true }
+      orderBy: { createdAt: "desc" },
     });
 
-    // map salespersonUid in response
-    const mapped = visits.map(v => ({
-      id: v.id,
-      salespersonUid: v.salesperson.uid,
-      clientName: v.clientName,
-      contactPersonName: v.contactPersonName,
-      clientPhone: v.clientPhone,
-      clientAddress: v.clientAddress,
-      clientDetails: v.clientDetails,
-      startTime: v.startTime,
-      endTime: v.endTime,
-      status: v.status,
-      createdAt: v.createdAt
-    }));
-
-    res.json(mapped);
+    res.json(visits);
   } catch (err) {
     next(err);
   }
 };
 
+// ---------- READ ONE ----------
 exports.getVisit = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const requester = req.user;
-    const visit = await prisma.visit.findUnique({ where: { id: Number(id) }, include: { salesperson: true } });
-    if (!visit) return res.status(404).json({ error: 'not found' });
-
-    // Access control: salesperson only can access own visit
-    if (requester.role === 'salesperson' && visit.salespersonId !== requester.id) {
-      return res.status(403).json({ error: 'forbidden' });
-    }
-
-    res.json({
-      id: visit.id,
-      salespersonUid: visit.salesperson.uid,
-      clientName: visit.clientName,
-      contactPersonName: visit.contactPersonName,
-      clientPhone: visit.clientPhone,
-      clientAddress: visit.clientAddress,
-      clientDetails: visit.clientDetails,
-      startTime: visit.startTime,
-      endTime: visit.endTime,
-      status: visit.status,
-      createdAt: visit.createdAt
+    const visit = await prisma.visit.findUnique({
+      where: { id: Number(id) },
     });
+
+    if (!visit) return res.status(404).json({ error: "Visit not found" });
+    if (visit.salespersonId !== req.user.id)
+      return res.status(403).json({ error: "Unauthorized" });
+
+    res.json(visit);
   } catch (err) {
     next(err);
   }
 };
 
+// ---------- UPDATE (EDIT PLANNED VISIT) ----------
 exports.updateVisit = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const requester = req.user;
-    const payload = req.body;
-
-    // Ensure visit exists
     const visit = await prisma.visit.findUnique({ where: { id: Number(id) } });
-    if (!visit) return res.status(404).json({ error: 'not found' });
 
-    if (requester.role === 'salesperson' && visit.salespersonId !== requester.id) {
-      return res.status(403).json({ error: 'forbidden' });
-    }
+    if (!visit) return res.status(404).json({ error: "Visit not found" });
+    if (visit.salespersonId !== req.user.id)
+      return res.status(403).json({ error: "Unauthorized" });
+    if (visit.status !== "planned")
+      return res.status(400).json({ error: "Cannot edit after start" });
 
-    const data = {};
-    if (payload.clientName !== undefined) data.clientName = payload.clientName;
-    if (payload.contactPersonName !== undefined) data.contactPersonName = payload.contactPersonName;
-    if (payload.clientPhone !== undefined) data.clientPhone = payload.clientPhone;
-    if (payload.clientAddress !== undefined) data.clientAddress = payload.clientAddress;
-    if (payload.clientDetails !== undefined) data.clientDetails = payload.clientDetails;
-    if (payload.startTime !== undefined) data.startTime = new Date(payload.startTime);
-    if (payload.endTime !== undefined) data.endTime = payload.endTime ? new Date(payload.endTime) : null;
-    if (payload.status !== undefined) data.status = payload.status;
-
-    await prisma.visit.update({
+    const updated = await prisma.visit.update({
       where: { id: Number(id) },
-      data
+      data: req.body,
     });
 
-    // return updated
-    const updated = await prisma.visit.findUnique({ where: { id: Number(id) }, include: { salesperson: true } });
-    res.json({
-      id: updated.id,
-      salespersonUid: updated.salesperson.uid,
-      clientName: updated.clientName,
-      contactPersonName: updated.contactPersonName,
-      clientPhone: updated.clientPhone,
-      clientAddress: updated.clientAddress,
-      clientDetails: updated.clientDetails,
-      startTime: updated.startTime,
-      endTime: updated.endTime,
-      status: updated.status,
-      createdAt: updated.createdAt
-    });
+    res.json(updated);
   } catch (err) {
     next(err);
   }
 };
 
+// ---------- DELETE (CANCEL PLANNED VISIT) ----------
 exports.deleteVisit = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const requester = req.user;
     const visit = await prisma.visit.findUnique({ where: { id: Number(id) } });
-    if (!visit) return res.status(404).json({ error: 'not found' });
 
-    if (requester.role === 'salesperson' && visit.salespersonId !== requester.id) {
-      return res.status(403).json({ error: 'forbidden' });
-    }
+    if (!visit) return res.status(404).json({ error: "Visit not found" });
+    if (visit.salespersonId !== req.user.id)
+      return res.status(403).json({ error: "Unauthorized" });
+    if (visit.status !== "planned")
+      return res.status(400).json({ error: "Cannot delete after start" });
 
     await prisma.visit.delete({ where: { id: Number(id) } });
-    res.json({ ok: true });
+    res.json({ ok: true, message: "Visit deleted successfully" });
   } catch (err) {
     next(err);
   }
 };
 
-/**
- * Summary endpoint: GET /api/visits/summary/:salespersonUid
- * Returns { planned: X, completed: Y }
- */
-exports.summary = async (req, res, next) => {
+// ---------- START VISIT ----------
+exports.startVisit = async (req, res, next) => {
   try {
-    const { salespersonUid } = req.params;
-    const requester = req.user;
+    const { visitId, startLat, startLong } = req.body;
+    const fileBuffer = req.file.buffer;
 
-    // Manager can request for any salespersonUid; salesperson can request their own only.
-    if (requester.role === 'salesperson' && requester.uid !== salespersonUid) {
-      return res.status(403).json({ error: 'forbidden' });
-    }
+    const visit = await prisma.visit.findUnique({
+      where: { id: Number(visitId) },
+    });
 
-    const user = await prisma.user.findUnique({ where: { uid: salespersonUid } });
-    if (!user) return res.status(400).json({ error: 'invalid salespersonUid' });
+    if (!visit) return res.status(404).json({ error: "Visit not found" });
+    if (visit.salespersonId !== req.user.id)
+      return res.status(403).json({ error: "Unauthorized" });
+    if (visit.status !== "planned")
+      return res.status(400).json({ error: "Visit already started or done" });
 
-    const planned = await prisma.visit.count({ where: { salespersonId: user.id, status: 'pending' } });
-    const completed = await prisma.visit.count({ where: { salespersonId: user.id, status: 'done' } });
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder: "visit-tracking/entry" },
+      async (error, result) => {
+        if (error) return next(error);
 
-    res.json({ planned, completed });
+        const exif = await extractExifData(fileBuffer);
+        const flags = softValidate(
+          { lat: parseFloat(startLat), long: parseFloat(startLong) },
+          exif
+        );
+
+        const updated = await prisma.visit.update({
+          where: { id: Number(visitId) },
+          data: {
+            status: "in-progress",
+            startTime: new Date(),
+            startLat: parseFloat(startLat),
+            startLong: parseFloat(startLong),
+            entryImageUrl: result.secure_url,
+            suspiciousFlags: flags,
+          },
+        });
+
+        res.json(updated);
+      }
+    );
+
+    streamifier.createReadStream(fileBuffer).pipe(uploadStream);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ---------- END VISIT ----------
+exports.endVisit = async (req, res, next) => {
+  try {
+    const { visitId, endLat, endLong } = req.body;
+    const fileBuffer = req.file.buffer;
+
+    const visit = await prisma.visit.findUnique({
+      where: { id: Number(visitId) },
+    });
+
+    if (!visit) return res.status(404).json({ error: "Visit not found" });
+    if (visit.salespersonId !== req.user.id)
+      return res.status(403).json({ error: "Unauthorized" });
+    if (visit.status !== "in-progress")
+      return res.status(400).json({ error: "Visit not in progress" });
+
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder: "visit-tracking/exit" },
+      async (error, result) => {
+        if (error) return next(error);
+
+        const exif = await extractExifData(fileBuffer);
+        const flags = softValidate(
+          { lat: parseFloat(endLat), long: parseFloat(endLong) },
+          exif
+        );
+
+        const combinedFlags = [...(visit.suspiciousFlags || []), ...flags];
+
+        const updated = await prisma.visit.update({
+          where: { id: Number(visitId) },
+          data: {
+            status: "done",
+            endTime: new Date(),
+            endLat: parseFloat(endLat),
+            endLong: parseFloat(endLong),
+            exitImageUrl: result.secure_url,
+            suspiciousFlags: combinedFlags,
+          },
+        });
+
+        res.json(updated);
+      }
+    );
+
+    streamifier.createReadStream(fileBuffer).pipe(uploadStream);
   } catch (err) {
     next(err);
   }
